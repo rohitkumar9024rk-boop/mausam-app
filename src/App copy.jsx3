@@ -1,0 +1,402 @@
+import { useEffect, useState } from "react";
+import "./App.css";
+
+const profiles = ["Fitness", "Health", "Travel", "Family"];
+
+function getWeatherText(code) {
+  if (code === 0) return "Clear Sky";
+  if ([1, 2, 3].includes(code)) return "Partly Cloudy";
+  if ([45, 48].includes(code)) return "Foggy";
+  if ([51, 53, 55, 56, 57].includes(code)) return "Drizzle";
+  if ([61, 63, 65, 66, 67].includes(code)) return "Rainy";
+  if ([71, 73, 75, 77].includes(code)) return "Snowy";
+  if ([80, 81, 82].includes(code)) return "Rain Showers";
+  if ([95, 96, 99].includes(code)) return "Thunderstorm";
+  return "Cloudy";
+}
+
+function getWeatherEmoji(code) {
+  if (code === 0) return "☀️";
+  if ([1, 2, 3].includes(code)) return "🌤️";
+  if ([45, 48].includes(code)) return "🌫️";
+  if ([51, 53, 55, 56, 57].includes(code)) return "🌦️";
+  if ([61, 63, 65, 80, 81, 82].includes(code)) return "🌧️";
+  if ([95, 96, 99].includes(code)) return "⛈️";
+  return "☁️";
+}
+
+function getAqiText(aqi) {
+  if (aqi <= 50) return "Good";
+  if (aqi <= 100) return "Moderate";
+  if (aqi <= 150) return "Sensitive";
+  if (aqi <= 200) return "Unhealthy";
+  if (aqi <= 300) return "Very Unhealthy";
+  return "Hazardous";
+}
+
+function getRecommendation(profile, weather) {
+  const { temperature, humidity, wind, uv, aqi, rain } = weather;
+
+  if (profile === "Fitness") {
+    if (aqi > 150) {
+      return {
+        title: "Consider an indoor workout",
+        text: "Air quality is unhealthy. Avoid prolonged outdoor exercise today.",
+        best: "Indoor workout recommended",
+      };
+    }
+    if (uv >= 7) {
+      return {
+        title: "Avoid peak sunlight",
+        text: "UV levels are high. Early morning or evening is better for outdoor exercise.",
+        best: "Before 8:00 AM / After 5:00 PM",
+      };
+    }
+    return {
+      title: "Good conditions for a workout",
+      text: `Temperature is ${temperature}°C with ${wind} km/h wind. Conditions look comfortable for outdoor activity.`,
+      best: "Morning / Evening",
+    };
+  }
+
+  if (profile === "Health") {
+    if (aqi > 100) {
+      return {
+        title: "Air quality needs attention",
+        text: `AQI is ${aqi}. Sensitive users should limit prolonged outdoor exposure.`,
+        best: "Prefer indoor activities",
+      };
+    }
+    return {
+      title: "Manage your health comfortably",
+      text: `Humidity is ${humidity}% and UV is ${uv}. Stay hydrated and protect yourself from direct sunlight.`,
+      best: uv >= 6 ? "Before 9:00 AM" : "Most of the day",
+    };
+  }
+
+  if (profile === "Travel") {
+    if (rain >= 50) {
+      return {
+        title: "Rain may affect your travel",
+        text: `There is a ${rain}% chance of rain. Carry rain protection and allow extra travel time.`,
+        best: "Check conditions before leaving",
+      };
+    }
+    return {
+      title: "Travel conditions look good",
+      text: `Rain probability is only ${rain}%. Weather conditions are suitable for travelling.`,
+      best: "10:00 AM – 5:00 PM",
+    };
+  }
+
+  return {
+    title: rain >= 50 ? "Rain alert for your family" : "A comfortable day for your family",
+    text:
+      rain >= 50
+        ? `Rain probability is ${rain}%. Carry umbrellas and plan school commute accordingly.`
+        : "No major weather concern is currently detected. School commute conditions look comfortable.",
+    best: rain >= 50 ? "Carry rain protection" : "Normal commute",
+  };
+}
+
+function App() {
+  const [profile, setProfile] = useState("Fitness");
+  const [weather, setWeather] = useState(null);
+  const [location, setLocation] = useState("Detecting location...");
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+
+  async function loadWeather(latitude, longitude) {
+    try {
+      setLoading(true);
+
+      const weatherUrl =
+        `https://api.open-meteo.com/v1/forecast?latitude=${latitude}&longitude=${longitude}` +
+        `&current=temperature_2m,relative_humidity_2m,apparent_temperature,weather_code,wind_speed_10m,uv_index` +
+        `&daily=temperature_2m_max,temperature_2m_min,precipitation_probability_max,sunrise,sunset` +
+        `&timezone=auto`;
+
+      const aqiUrl =
+        `https://air-quality-api.open-meteo.com/v1/air-quality?latitude=${latitude}&longitude=${longitude}` +
+        `&current=us_aqi,pm2_5,pm10&timezone=auto`;
+
+      const [weatherResponse, aqiResponse] = await Promise.all([
+        fetch(weatherUrl),
+        fetch(aqiUrl),
+      ]);
+
+      if (!weatherResponse.ok || !aqiResponse.ok) {
+        throw new Error("Unable to fetch weather data");
+      }
+
+      const w = await weatherResponse.json();
+      const a = await aqiResponse.json();
+
+      setWeather({
+        temperature: Math.round(w.current.temperature_2m),
+        feelsLike: Math.round(w.current.apparent_temperature),
+        humidity: w.current.relative_humidity_2m,
+        wind: Math.round(w.current.wind_speed_10m),
+        uv: Math.round(w.current.uv_index),
+        code: w.current.weather_code,
+        aqi: Math.round(a.current.us_aqi),
+        pm25: Math.round(a.current.pm2_5),
+        pm10: Math.round(a.current.pm10),
+        rain: w.daily.precipitation_probability_max[0] ?? 0,
+        daily: w.daily,
+      });
+
+      setLoading(false);
+    } catch (err) {
+      console.log(err);
+      setError("Weather data could not be loaded.");
+      setLoading(false);
+    }
+  }
+
+  useEffect(() => {
+    if (!navigator.geolocation) {
+      setLocation("Faridabad");
+      loadWeather(28.4089, 77.3178);
+      return;
+    }
+
+    navigator.geolocation.getCurrentPosition(
+      async (position) => {
+        const { latitude, longitude } = position.coords;
+
+        try {
+          const geo = await fetch(
+            `https://geocoding-api.open-meteo.com/v1/reverse?latitude=${latitude}&longitude=${longitude}&language=en&format=json`
+          );
+
+          const geoData = await geo.json();
+          const place =
+            geoData?.results?.[0]?.name ||
+            geoData?.results?.[0]?.admin1 ||
+            "Current Location";
+
+          setLocation(place);
+        } catch {
+          setLocation("Current Location");
+        }
+
+        loadWeather(latitude, longitude);
+      },
+      () => {
+        setLocation("Faridabad");
+        loadWeather(28.4089, 77.3178);
+      }
+    );
+  }, []);
+
+  const recommendation = weather
+    ? getRecommendation(profile, weather)
+    : null;
+
+  return (
+    <div className="app">
+      <nav className="navbar">
+        <div className="logo">
+          <span>☁️</span>
+          <div>
+            <strong>Mausam</strong>
+            <small>Personal Weather Intelligence</small>
+          </div>
+        </div>
+
+        <div className="nav-right">
+          <button className="location-btn">📍 {location}</button>
+          <div className="avatar">RK</div>
+        </div>
+      </nav>
+
+      <main>
+        <section className="hero">
+          <div className="hero-left">
+            <p className="greeting">GOOD EVENING, ROHIT 👋</p>
+
+            <h1>
+              Weather that
+              <br />
+              <span>understands you.</span>
+            </h1>
+
+            <p className="hero-text">
+              Your weather dashboard adapts to what matters most to you.
+            </p>
+
+            <div className="profile-tabs">
+              {profiles.map((item) => (
+                <button
+                  key={item}
+                  className={profile === item ? "selected" : ""}
+                  onClick={() => setProfile(item)}
+                >
+                  {item === "Fitness" && "🏃"}
+                  {item === "Health" && "❤️"}
+                  {item === "Travel" && "✈️"}
+                  {item === "Family" && "👨‍👩‍👧"} {item}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <div className="weather-orb">
+            {loading ? (
+              <strong>...</strong>
+            ) : weather ? (
+              <>
+                <div className="sun">{getWeatherEmoji(weather.code)}</div>
+                <strong>{weather.temperature}°</strong>
+                <p>{getWeatherText(weather.code)}</p>
+                <small>Feels like {weather.feelsLike}°</small>
+              </>
+            ) : (
+              <strong>--</strong>
+            )}
+          </div>
+        </section>
+
+        {error && <p>{error}</p>}
+
+        {weather && recommendation && (
+          <>
+            <div className="section-title">
+              <div>
+                <p>PERSONALIZED FOR YOU</p>
+                <h2>{recommendation.title}</h2>
+              </div>
+              <span>Live data • Updated now</span>
+            </div>
+
+            <section className="smart-card">
+              <div className="smart-icon">
+                {profile === "Fitness"
+                  ? "🏃"
+                  : profile === "Health"
+                  ? "❤️"
+                  : profile === "Travel"
+                  ? "✈️"
+                  : "👨‍👩‍👧"}
+              </div>
+
+              <div className="smart-content">
+                <h3>Smart recommendation</h3>
+                <p>{recommendation.text}</p>
+              </div>
+
+              <div className="best-time">
+                <small>RECOMMENDED</small>
+                <strong>{recommendation.best}</strong>
+              </div>
+            </section>
+
+            <section className="stats-grid">
+              <div className="stat-card">
+                <small>🌬️ Air Quality</small>
+                <strong>{weather.aqi}</strong>
+                <span>● {getAqiText(weather.aqi)}</span>
+              </div>
+
+              <div className="stat-card">
+                <small>☀️ UV Index</small>
+                <strong>{weather.uv}</strong>
+                <span>● {weather.uv >= 6 ? "High" : "Moderate"}</span>
+              </div>
+
+              <div className="stat-card">
+                <small>💧 Humidity</small>
+                <strong>{weather.humidity}%</strong>
+                <span>● {weather.humidity > 70 ? "High" : "Comfortable"}</span>
+              </div>
+            </section>
+
+            <section className="bottom-grid">
+              <div className="forecast">
+                <div className="card-heading">
+                  <h2>7-Day Forecast</h2>
+                  <span>Live forecast →</span>
+                </div>
+
+                <div className="days">
+                  {weather.daily.time.map((date, index) => {
+                    const dayName =
+                      index === 0
+                        ? "Today"
+                        : new Date(date).toLocaleDateString("en-IN", {
+                            weekday: "short",
+                          });
+
+                    return (
+                      <div
+                        className={index === 0 ? "day active-day" : "day"}
+                        key={date}
+                      >
+                        <small>{dayName}</small>
+                        <span>
+                          {getWeatherEmoji(weather.daily.weather_code?.[index])}
+                        </span>
+                        <strong>
+                          {Math.round(weather.daily.temperature_2m_max[index])}°
+                        </strong>
+                        <em>
+                          {Math.round(weather.daily.temperature_2m_min[index])}°
+                        </em>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+
+              <div className="destination">
+                <div className="card-heading">
+                  <h2>Today's Details</h2>
+                  <span>🌤️</span>
+                </div>
+
+                <div className="destination-place">
+                  <div>
+                    <h3>Rain Probability</h3>
+                    <p>Expected today</p>
+                  </div>
+                  <strong>{weather.rain}%</strong>
+                </div>
+
+                <div className="mini-alert">
+                  💨 Wind speed: {weather.wind} km/h
+                </div>
+
+                <div className="mini-alert">
+                  🌫️ PM2.5: {weather.pm25} μg/m³
+                </div>
+              </div>
+            </section>
+
+            <section className="alert-box">
+              <div className="alert-symbol">🔔</div>
+              <div>
+                <strong>Weather Alert Center</strong>
+                <p>
+                  {weather.rain >= 70
+                    ? "High probability of rain detected. Plan outdoor activities carefully."
+                    : weather.aqi > 150
+                    ? "Poor air quality detected. Sensitive users should reduce outdoor exposure."
+                    : "No major weather concern detected for your current location."}
+                </p>
+              </div>
+              <button>Live monitoring →</button>
+            </section>
+          </>
+        )}
+      </main>
+
+      <footer>
+        <span>🌤️ Mausam</span>
+        <span>Personalized • Intelligent • Accessible</span>
+      </footer>
+    </div>
+  );
+}
+
+export default App;
